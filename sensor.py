@@ -8,13 +8,21 @@ class MPU6500:
         
         # MPU6500 Registers
         self.PWR_MGMT_1 = 0x6B
-        self.ACCEL_XOUT_H = 0x43
+        self.ACCEL_XOUT_H = 0x3B
         self.TEMP_OUT_H = 0x41
-        self.GYRO_XOUT_H =  0x3B
+        self.GYRO_XOUT_H = 0x43
+        self.SMPLRT_DIV = 0x19
+        self.CONFIG = 0x1A
         
         # Wake up the sensor (write 0x00 to power management register)
         self._write_register(self.PWR_MGMT_1, 0x00)
         time.sleep(0.1) # Give it a moment to stabilize
+        
+        # Disable DLPF for max bandwidth (8kHz Gyro, 4kHz Accel)
+        self._write_register(self.CONFIG, 0x00) 
+        
+        # Set Sample Rate Divider to 0 (Divider = 1 + SMPLRT_DIV)
+        self._write_register(self.SMPLRT_DIV, 0x00)
 
     def _write_register(self, register, value):
         """Helper function to write a single byte to a register."""
@@ -69,3 +77,41 @@ class MPU6500:
         
         # MPU6500 formula: (Raw / 333.87) + 21.0
         return (raw_temp / 333.87) + 21.0
+    
+    
+class QMC5883L:
+    def __init__(self, i2c_bus, address=0x0D): # QMC5883L default address is 0x0D
+        self.i2c = i2c_bus
+        self.address = address
+        
+        # QMC5883L specific startup sequence
+        # 1. Write 0x01 to Set/Reset register (0x0B)
+        self._write_register(0x0B, 0x01)
+        
+        # 2. Control Reg 1 (0x09): OSR=512, RNG=8G, ODR=200Hz, MODE=Continuous
+        # 0x00 (OSR) | 0x10 (RNG) | 0x0C (ODR) | 0x01 (MODE) = 0x1D
+        self._write_register(0x09, 0x1D) # Changed from 0x19 to 0x1D
+        time.sleep(0.01)
+
+    def _write_register(self, register, value):
+        while not self.i2c.try_lock():
+            pass
+        try:
+            self.i2c.writeto(self.address, bytes([register, value]))
+        finally:
+            self.i2c.unlock()
+
+    def get_mag(self):
+        # Read 6 bytes starting from X_LSB (0x00)
+        buffer = bytearray(6)
+        while not self.i2c.try_lock():
+            pass
+        try:
+            self.i2c.writeto(self.address, bytes([0x00]))
+            self.i2c.readfrom_into(self.address, buffer)
+        finally:
+            self.i2c.unlock()
+            
+        # Unpack as Little-Endian signed shorts (<hhh)
+        mx, my, mz = struct.unpack('<hhh', buffer)
+        return (mx, my, mz)
