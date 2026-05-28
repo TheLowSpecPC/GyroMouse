@@ -13,16 +13,20 @@ class MPU6500:
         self.GYRO_XOUT_H = 0x43
         self.SMPLRT_DIV = 0x19
         self.CONFIG = 0x1A
+        self.GYRO_CONFIG = 0x1B
         
         # Wake up the sensor (write 0x00 to power management register)
         self._write_register(self.PWR_MGMT_1, 0x00)
         time.sleep(0.1) # Give it a moment to stabilize
         
-        # Disable DLPF for max bandwidth (8kHz Gyro, 4kHz Accel)
-        self._write_register(self.CONFIG, 0x00) 
-        
         # Set Sample Rate Divider to 0 (Divider = 1 + SMPLRT_DIV)
         self._write_register(self.SMPLRT_DIV, 0x00)
+        
+        # Disable DLPF for max bandwidth (8kHz Gyro, 4kHz Accel)
+        self._write_register(self.CONFIG, 0x00)
+        
+        # set Gyro Full Scale at ±500dps
+        #self._write_register(self.GYRO_CONFIG, 0x08)
 
     def _write_register(self, register, value):
         """Helper function to write a single byte to a register."""
@@ -53,7 +57,7 @@ class MPU6500:
         # Unpack the 6 bytes into three 16-bit signed integers (>hhh)
         ax, ay, az = struct.unpack('>hhh', data)
         
-        # Default MPU6500 scale is +/- 2g (16384 LSB/g)
+        # Default MPU6500 scale is ±2g (16384 LSB/g)
         return (ax / 16384.0, ay / 16384.0, az / 16384.0)
 
     def get_gyro(self):
@@ -64,7 +68,10 @@ class MPU6500:
         # Unpack the 6 bytes into three 16-bit signed integers (>hhh)
         gx, gy, gz = struct.unpack('>hhh', data)
         
-        # Default MPU6500 scale is +/- 250 dps (131 LSB/dps)
+        # Default MPU6500 scale is ±500 dps (65.5 LSB/dps)
+        #return (gx / 65.5, gy / 65.5, gz / 65.5)
+    
+        # Default MPU6500 scale is ±250 dps (131 LSB/dps)
         return (gx / 131.0, gy / 131.0, gz / 131.0)
 
     def get_temperature(self):

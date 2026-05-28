@@ -18,7 +18,7 @@ mpu = MPU6500(i2c)
 mag = QMC5883L(i2c)
 
 # Initialize Mahony Filter (Default Kp=0.5, Ki=0.0 are usually good starting points)
-ahrs = Mahony(sample_freq=SAMPLE_RATE_HZ, Kp=10, Ki=0.0)
+ahrs = Mahony(sample_freq=SAMPLE_RATE_HZ, Kp=0.5, Ki=0.0)
 
 # State variable for non-blocking timer
 last_update_time = time.monotonic_ns()
@@ -29,13 +29,11 @@ def calibrate_gyro(mpu):
         os.stat(CALIBRATION_FILE) # Check if file exists
         with open(CALIBRATION_FILE, "r") as f:
             offsets = json.load(f)
-            print("Loaded saved gyro calibration!")
             return offsets["x"], offsets["y"], offsets["z"]
     except OSError:
         pass # File doesn't exist, proceed to calibrate
 
     # Run the calibration routine (from previous steps)
-    print("No calibration found. Keep sensor perfectly still! Calibrating gyro...")
     x_off, y_off, z_off = 0.0, 0.0, 0.0
     samples = 200
     for _ in range(samples):
@@ -53,17 +51,12 @@ def calibrate_gyro(mpu):
     try:
         with open(CALIBRATION_FILE, "w") as f:
             json.dump({"x": x_off, "y": y_off, "z": z_off}, f)
-        print("Calibration saved to flash!")
     except OSError:
-        print("WARNING: Could not save to flash. Is boot.py set to readonly=False?")
+        pass
 
     return x_off, y_off, z_off
 
 def get_orientation():
-    """
-    Checks if enough time has passed to poll the sensors.
-    If so, updates the Mahony filter and returns the latest Pitch, Roll, and Yaw in degrees.
-    """
     global last_update_time
     
     current_time = time.monotonic_ns()
@@ -96,7 +89,7 @@ def get_orientation():
     roll_deg = math.degrees(ahrs.roll)
     yaw_deg = math.degrees(ahrs.yaw)
     
-    return pitch_deg, roll_deg, yaw_deg
+    #return pitch_deg, roll_deg, yaw_deg
 
     # (q0 is the scalar part, q1/q2/q3 are the vector parts)
     return ahrs.q0, ahrs.q1, ahrs.q2, ahrs.q3
@@ -104,13 +97,10 @@ def get_orientation():
 # Run calibration before starting AHRS
 gyro_off_x, gyro_off_y, gyro_off_z = calibrate_gyro(mpu)
 
-print("Starting AHRS... Keep sensor still to allow filter to converge.")
-
-PRINT_INTERVAL_NS = 50_000_000 #50ms
+PRINT_INTERVAL_NS = 20_000_000 #20ms
 while True:
-    pitch, roll, yaw = get_orientation()
-    #q0, q1, q2, q3 = get_orientation()
-        
+    q0, q1, q2, q3 = get_orientation()
+    
     if time.monotonic_ns() % PRINT_INTERVAL_NS < 5_000_000:
-        print(f"Pitch: {pitch:>6.1f} | Roll: {roll:>6.1f} | Yaw: {yaw:>6.1f}")
-        #print(f"Q0: {q0:>6.3f} | Q1: {q1:>6.3f} | Q2: {q2:>6.3f} | Q3: {q3:>6.3f}")
+        print(f"{q0},{q1},{q2},{q3}")
+
