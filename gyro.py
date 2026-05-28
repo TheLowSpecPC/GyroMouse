@@ -4,6 +4,8 @@ import board
 import busio
 import json
 import os
+import usb_hid
+from adafruit_hid.mouse import Mouse
 from sensor import MPU6500, QMC5883L
 from mahony import Mahony
 
@@ -13,6 +15,8 @@ CALIBRATION_FILE = "/calibration.json"
 
 # Increase frequency to 400kHz for faster sensor polling
 i2c = busio.I2C(scl=board.GP15, sda=board.GP14, frequency=400000)
+
+m = Mouse(usb_hid.devices)
 
 mpu = MPU6500(i2c)
 mag = QMC5883L(i2c)
@@ -59,36 +63,26 @@ def calibrate_gyro(mpu):
 
     return x_off, y_off, z_off
 
+# Run calibration before starting AHRS
+gyro_off_x, gyro_off_y, gyro_off_z = calibrate_gyro(mpu)
+
 def get_orientation():
-    """
-    Checks if enough time has passed to poll the sensors.
-    If so, updates the Mahony filter and returns the latest Pitch, Roll, and Yaw in degrees.
-    """
-    global last_update_time
+    # 1. Read Raw Sensor Data
+    ax, ay, az = mpu.get_acceleration()
+    gx, gy, gz = mpu.get_gyro()
+    raw_mx, raw_my, raw_mz = mag.get_mag()
     
-    current_time = time.monotonic_ns()
+    # Apply Calibration Offsets
+    gx -= gyro_off_x
+    gy -= gyro_off_y
+    gz -= gyro_off_z
     
-    # Non-blocking check: execute only if the interval has elapsed
-    if (current_time - last_update_time) >= UPDATE_INTERVAL_NS:
-        # 1. Read Raw Sensor Data
-        ax, ay, az = mpu.get_acceleration()
-        gx, gy, gz = mpu.get_gyro()
-        raw_mx, raw_my, raw_mz = mag.get_mag()
-        
-        # Apply Calibration Offsets
-        gx -= gyro_off_x
-        gy -= gyro_off_y
-        gz -= gyro_off_z
-        
-        # 2. Map Magnetometer Axes
-        mx, my, mz = raw_my, raw_mx, -raw_mz
-        
-        # 3. Update the Mahony Filter
-        # Note: Your MPU6500 class already scales gyro to degrees/sec, which Mahony requires.
-        ahrs.update(gx, gy, gz, ax, ay, az, mx, my, mz)
-        
-        # 4. Reset Timer (Add interval instead of setting to current_time to avoid drift)
-        last_update_time += UPDATE_INTERVAL_NS
+    # 2. Map Magnetometer Axes
+    mx, my, mz = raw_my, raw_mx, -raw_mz
+    
+    # 3. Update the Mahony Filter
+    # Note: Your MPU6500 class already scales gyro to degrees/sec, which Mahony requires.
+    ahrs.update(gx, gy, gz, ax, ay, az, mx, my, mz)
 
     # 5. Retrieve and Convert Angles
     # invoke compute_angles() on demand and return radians.
@@ -101,16 +95,18 @@ def get_orientation():
     # (q0 is the scalar part, q1/q2/q3 are the vector parts)
     return ahrs.q0, ahrs.q1, ahrs.q2, ahrs.q3
 
-# Run calibration before starting AHRS
-gyro_off_x, gyro_off_y, gyro_off_z = calibrate_gyro(mpu)
-
 print("Starting AHRS... Keep sensor still to allow filter to converge.")
 
 PRINT_INTERVAL_NS = 50_000_000 #50ms
+sen = 50
 while True:
     pitch, roll, yaw = get_orientation()
     #q0, q1, q2, q3 = get_orientation()
-        
+    
+    x_value = int(((yaw) / 90) * sen)
+    y_value = int(((pitch) / 90) * sen)
+    #m.move(0, y_value)
+    
     if time.monotonic_ns() % PRINT_INTERVAL_NS < 5_000_000:
-        print(f"Pitch: {pitch:>6.1f} | Roll: {roll:>6.1f} | Yaw: {yaw:>6.1f}")
-        #print(f"Q0: {q0:>6.3f} | Q1: {q1:>6.3f} | Q2: {q2:>6.3f} | Q3: {q3:>6.3f}")
+        #print(f"Pitch: {pitch}, Roll: {roll}, Yaw: {yaw}")
+        print((x_value, y_value))
