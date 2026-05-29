@@ -107,7 +107,7 @@ def get_orientation():
 print("Finding Center")
 while True:
     pitchoff, rolloff, yawoff = get_orientation()
-    if time.monotonic_ns() % 5_000_000_000 < 5_000_000: #1s
+    if time.monotonic_ns() % 1_000_000_000 < 5_000_000: #1s
         break
 print("Done")
 
