@@ -90,23 +90,43 @@ def get_orientation():
     roll_deg = math.degrees(ahrs.roll)
     yaw_deg = math.degrees(ahrs.yaw)
     
+    # Convert Pitch, Roll and Yaw to a continuous 0 to 180 degrees
+    if abs(roll_deg) > 90:
+        pitch_deg = -pitch_deg
+    else:
+        if pitch_deg >= 0:
+            pitch_deg = pitch_deg - 180
+        else:
+            pitch_deg = pitch_deg + 180
+    
     return pitch_deg, roll_deg, yaw_deg
 
     # (q0 is the scalar part, q1/q2/q3 are the vector parts)
     return ahrs.q0, ahrs.q1, ahrs.q2, ahrs.q3
 
+print("Finding Center")
+while True:
+    pitchoff, rolloff, yawoff = get_orientation()
+    if time.monotonic_ns() % 5_000_000_000 < 5_000_000: #1s
+        break
+print("Done")
+
 print("Starting AHRS... Keep sensor still to allow filter to converge.")
 
 PRINT_INTERVAL_NS = 50_000_000 #50ms
-sen = 50
+sen = 150
 while True:
     pitch, roll, yaw = get_orientation()
     #q0, q1, q2, q3 = get_orientation()
     
-    x_value = int(((yaw) / 90) * sen)
-    y_value = int(((pitch) / 90) * sen)
-    #m.move(0, y_value)
+    x = int((yaw - yawoff + 180) % 360 - 180)
+    y = int((pitch - pitchoff + 180) % 360 - 180)
+    
+    x_value = int((-x / 180) * sen)
+    y_value = int((y / 180) * sen)
+    
+    m.move(x_value, y_value)
     
     if time.monotonic_ns() % PRINT_INTERVAL_NS < 5_000_000:
-        #print(f"Pitch: {pitch}, Roll: {roll}, Yaw: {yaw}")
-        print((x_value, y_value))
+        print(f"Pitch: {pitch}, Roll: {roll}, Yaw: {yaw}")
+        print((x, y))
