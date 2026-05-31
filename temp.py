@@ -1,45 +1,42 @@
+# SPDX-FileCopyrightText: 2022 Neradoc
+# SPDX-License-Identifier: Unlicense
+
 import time
-import board
-import busio
-from sensor import MPU6500, QMC5883L
+import usb_hid
+from absolute_mouse import AbsMouse # Using your new class name
 
-i2c = busio.I2C(board.GP15, board.GP14, frequency=400000)
-imu = MPU6500(i2c)
-mag = QMC5883L(i2c)
+# --- NEW LOGIC: Grab the mouse by its order ---
+# Find all devices that identify as a Mouse
+all_mice = [dev for dev in usb_hid.devices if dev.usage_page == 0x1 and dev.usage == 0x02]
 
-def print_sensors():
-    ax, ay, az = imu.get_acceleration()
-    mx, my, mz = mag.get_mag()
-    print("\n--- Current Reading ---")
-    print(f"Accel -> X: {ax:6.2f} | Y: {ay:6.2f} | Z: {az:6.2f}")
-    print(f"Mag   -> X: {mx:6.0f} | Y: {my:6.0f} | Z: {mz:6.0f}")
+if len(all_mice) == 0:
+    raise RuntimeError("No mice found at all! Check your USB cable and boot.py.")
+elif len(all_mice) == 1:
+    print("Warning: Only 1 mouse found. Using it as the Absolute Mouse.")
+    abs_device = all_mice[0]
+else:
+    # Because absolute_mouse was placed AFTER the standard mouse in boot.py,
+    # it will be the last mouse in this list.
+    abs_device = all_mice[-1]
+    std_device = all_mice[0] # You can pass this to a StandardMouse class if you want!
 
-print("=== SENSOR ALIGNMENT TEST ===")
-print("Gravity is your friend. An axis pointing straight UP against gravity will read around +1.00 G.")
-print("The Earth's magnetic field is trickier, but we can look at the relative magnitudes.\n")
+# Initialize using ONLY the absolute mouse device
+# We wrap it in a list [abs_device] so the library's find_device function can read it
+m = AbsMouse([abs_device])
+# ----------------------------------------------
 
-print("STEP 1: Place the board FLAT on the desk.")
-print("Wait 3 seconds...")
-time.sleep(3)
-print_sensors()
-print("-> Note which Accel axis reads ~ +1.00 or -1.00 (This is the Z-axis of the IMU).")
-print("-> Note which Mag axis has the LARGEST absolute value.")
-print("-" * 30)
+# mouse_abs accept value from 0 to 32767 for both X and Y
+# Note: Values are NOT pixels! 32767 = 100% (to right or to bottom)
 
-print("\nSTEP 2: Stand the board UP vertically (pitch it up 90 degrees).")
-print("Wait 5 seconds...")
-time.sleep(5)
-print_sensors()
-print("-> Note which Accel axis reads ~ +1.00 or -1.00 (This is the X or Y axis of the IMU).")
-print("-> Note which Mag axis just had a massive shift in value.")
-print("-" * 30)
+def transpose(x, y):
+    return ((x * 32767) // 1920, (y * 32767) // 1080)
 
-print("\nSTEP 3: Roll the board onto its SIDE (roll it 90 degrees).")
-print("Wait 5 seconds...")
-time.sleep(5)
-print_sensors()
-print("-> Note which Accel axis reads ~ +1.00 or -1.00 (This is the remaining axis).")
-print("-> Note which Mag axis just changed.")
-print("-" * 30)
+positions = [(10, 40), (800, 800), (1600, 200)]
 
-print("\nTest Complete.")
+while True:
+    time.sleep(2)
+    for position in positions:
+        print("MOVE", position, transpose(*position))
+        m.move(*transpose(*position), 0)
+        time.sleep(2)
+    break
