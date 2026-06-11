@@ -9,7 +9,6 @@ from ulab import numpy as np
 from adafruit_hid.mouse import Mouse
 from sensor import MPU6500, QMC5883L
 from mahony import Mahony
-from absolute_mouse import AbsMouse
 
 SAMPLE_RATE_HZ = 100
 UPDATE_INTERVAL_NS = int(1e9 / SAMPLE_RATE_HZ)  # Convert to nanoseconds
@@ -18,17 +17,13 @@ CALIBRATION_FILE = "/calibration.json"
 # Increase frequency to 400kHz for faster sensor polling
 i2c = busio.I2C(scl=board.GP15, sda=board.GP14, frequency=400000)
 
-# Find all devices that identify as a Mouse
-all_mice = [dev for dev in usb_hid.devices if dev.usage_page == 0x1 and dev.usage == 0x02]
-
-absm = AbsMouse(all_mice[-1]) # There are only two mouse so the last one would be the AbsMouse
 m = Mouse(usb_hid.devices)
 
 mpu = MPU6500(i2c)
 mag = QMC5883L(i2c)
 
-# Initialize Mahony Filter (Default Kp=0.5, Ki=0.0 are usually good starting points)
-ahrs = Mahony(sample_freq=SAMPLE_RATE_HZ, Kp=8, Ki=0.0)
+# Initialize Mahony Filter
+ahrs = Mahony(sample_freq=SAMPLE_RATE_HZ, Kp=0.05, Ki=0.0)
 
 # State variable for non-blocking timer
 last_update_time = time.monotonic_ns()
@@ -110,54 +105,40 @@ def get_orientation():
     # (q0 is the scalar part, q1/q2/q3 are the vector parts)
     return ahrs.q0, ahrs.q1, ahrs.q2, ahrs.q3
 
-def transpose(x, y):
-    rang = 50
-    xrange = rang
-    yrange = rang-(1920/1080)
-    
-    #x = ((x/xrange)*960)+960
-    #y = ((y/yrange)*540)+540
-    
-    x = np.interp(x, [-xrange, xrange], [0, 1920])[0]
-    y = np.interp(y, [-yrange, yrange], [0, 1080])[0]
-    #print(x,y)
-    
-    return ((x * 32767) // 1920, (y * 32767) // 1080)
-
 print("Finding Center")
 while True:
     pitchoff, rolloff, yawoff = get_orientation()
-    
-    if time.monotonic_ns() % 2_000_000_000 < 5_000_000: #2s
+    if time.monotonic_ns() % 5_000_000_000 < 5_000_000: #2s
         break
-    
 print("Done")
 
 print("Starting AHRS... Keep sensor still to allow filter to converge.")
 
 PRINT_INTERVAL_NS = 50_000_000 #50ms
+inrange = 180
+outrangex = 5000
+outrangey = outrangex*(1920/1080)
+xnot, ynot = 0, 0
 while True:
     pitch, roll, yaw = get_orientation()
     #q0, q1, q2, q3 = get_orientation()
     
-    # Setting Pitch and Yaw Offset
-    x = (yaw - yawoff + 180) % 360 - 180
-    y = (pitch - pitchoff + 180) % 360 - 180
+    xin = (yaw - yawoff + 180) % 360 - 180
+    yin = (pitch - pitchoff + 180) % 360 - 180
     
-    # Inverting X-axis
-    x = -x
-    y = y
+    x = np.interp(xin, [-inrange, inrange], [-outrangex, outrangex])[0]
+    y = np.interp(yin, [-inrange, inrange], [-outrangey, outrangey])[0]
+        
+    x_value = int(x - xnot)
+    y_value = int(y - ynot)
     
-    xtran, ytran = transpose(x, y)
+    m.move(-x_value, y_value)
     
-    x_value = int(xtran)
-    y_value = int(ytran)
-    
-    final = (x_value, y_value)
-    
-    absm.move(*final,0)
+    xnot = x
+    ynot = y
     
     if time.monotonic_ns() % PRINT_INTERVAL_NS < 5_000_000:
         #print(f"Pitch: {pitch}, Roll: {roll}, Yaw: {yaw}")
-        print((x, y))
-        print((x_value, y_value))
+        #print((x, y))
+        print((xnot, ynot))
+        print((xin, yin))
