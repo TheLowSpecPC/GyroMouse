@@ -12,7 +12,7 @@ from mahony import Mahony
 
 SAMPLE_RATE_HZ = 100
 UPDATE_INTERVAL_NS = int(1e9 / SAMPLE_RATE_HZ)  # Convert to nanoseconds
-CALIBRATION_FILE = "/calibration.json"
+CALIBRATION_FILE = "/Calibration/GyroCalibration.json"
 
 # Increase frequency to 400kHz for faster sensor polling
 i2c = busio.I2C(scl=board.GP15, sda=board.GP14, frequency=400000)
@@ -108,36 +108,39 @@ def get_orientation():
 print("Finding Center")
 while True:
     pitchoff, rolloff, yawoff = get_orientation()
-    if time.monotonic_ns() % 5_000_000_000 < 5_000_000: #2s
+    if time.monotonic_ns() % 2_000_000_000 < 5_000_000: #2s
         break
 print("Done")
 
 print("Starting AHRS... Keep sensor still to allow filter to converge.")
 
-PRINT_INTERVAL_NS = 50_000_000 #50ms
 inrange = 180
-outrangex = 5000
-outrangey = outrangex*(1920/1080)
+outrangey = 6000
+outrangex = outrangey+(1920/1080)
 xnot, ynot = 0, 0
+last_update_time = time.monotonic_ns()
+
 while True:
-    pitch, roll, yaw = get_orientation()
-    #q0, q1, q2, q3 = get_orientation()
+    current_time = time.monotonic_ns()
     
-    xin = (yaw - yawoff + 180) % 360 - 180
-    yin = (pitch - pitchoff + 180) % 360 - 180
-    
-    x = np.interp(xin, [-inrange, inrange], [-outrangex, outrangex])[0]
-    y = np.interp(yin, [-inrange, inrange], [-outrangey, outrangey])[0]
+    if current_time - last_update_time >= UPDATE_INTERVAL_NS:
+        pitch, roll, yaw = get_orientation()
+        #q0, q1, q2, q3 = get_orientation()
         
-    x_value = int(x - xnot)
-    y_value = int(y - ynot)
+        xin = (yaw - yawoff + 180) % 360 - 180
+        yin = (pitch - pitchoff + 180) % 360 - 180
+        
+        x = np.interp(xin, [-inrange, inrange], [-outrangex, outrangex])[0]
+        y = np.interp(yin, [-inrange, inrange], [-outrangey, outrangey])[0]
+            
+        x_value = int(x - xnot)
+        y_value = int(y - ynot)
+        
+        m.move(-x_value, y_value)
+        
+        xnot = x
+        ynot = y
     
-    m.move(-x_value, y_value)
-    
-    xnot = x
-    ynot = y
-    
-    if time.monotonic_ns() % PRINT_INTERVAL_NS < 5_000_000:
         #print(f"Pitch: {pitch}, Roll: {roll}, Yaw: {yaw}")
         #print((x, y))
         print((xnot, ynot))
